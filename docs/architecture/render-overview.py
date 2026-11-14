@@ -129,7 +129,7 @@ for j in range(3):
 # Quiet footer keeps implementation details out of the primary reading path.
 line([(48,1236),(852,1236)],'#CED5D1',1)
 text(48,1256,'LOCAL TRANSCRIPTION & EDITING',14,MUTED,True)
-text(48,1281,'AI assists selection and scoring.',17,INK)
+text(48,1281,'AI assists selection and scoring; --no-ai runs fully offline.',17,INK)
 text(48,1320,'Illustrative overview · mode details in the architecture guide',14,MUTED)
 im.save(ROOT/'overview.png', optimize=True)
 print(f'Rendered {ROOT / "overview.png"} ({W*SCALE} × {H*SCALE})')

@@ -3,6 +3,7 @@
 Turn any video into vertical, captioned shorts for TikTok, Reels and YouTube Shorts: talks, podcasts, interviews, trailers, gameplay, or a YouTube link. Built for Whop Content Rewards clipping campaigns.
 
 - **Finds the moments.** An AI (NYO `glm-5.3-flash`) reads the transcript and picks the strongest standalone moments. Every clip opens on a clean sentence and ends after one.
+- **No key, no problem.** `--no-ai` picks offline instead: excited language and audio loudness decide, then the same editorial checks. Everything except that one AI call is local and free either way.
 - **Research with your agent.** Agents with web tools can discover campaigns,
   read briefs and assess permitted footage before clipping. The
   [research workflow](docs/CAMPAIGN-RESEARCH.md) covers fit, evidence, optional
@@ -18,7 +19,7 @@ Turn any video into vertical, captioned shorts for TikTok, Reels and YouTube Sho
 
 <p align="center">
   <a href="docs/architecture/system.svg">
-    <img src="docs/architecture/system.svg" width="1000" alt="Clipper architecture: agent-side campaign discovery, optional scraping, fit and source-permission checks, and private research context feed a separate local pipeline for transcription, clips/visual/re-edit selection, ranking, rendering, verification and outputs; AI modules use NYO.">
+    <img src="docs/architecture/system.svg" width="1000" alt="Clipper architecture: agent-side campaign discovery, optional scraping, fit and source-permission checks, and private research context feed a separate local pipeline for transcription, clips/visual/re-edit selection (AI picks, or offline --no-ai picks), ranking, rendering, verification and outputs; AI modules use NYO unless --no-ai skips it.">
   </a>
 </p>
 
@@ -32,7 +33,7 @@ It runs on **Windows, macOS and Linux**, either by itself or with an AI coding a
 
 ## Setup
 
-You need an **NYO API key** (from your NYO account) and about **3 GB of free disk** (the speech model is 1.6 GB, downloaded on first run).
+You need an **NYO API key** (from your NYO account) and about **3 GB of free disk** (the speech model is 1.6 GB, downloaded on first run). No key yet? Skip it: run with `--no-ai` and the moments are picked offline (transcript language + audio energy), free.
 
 ### Easiest: let OpenCode do it
 
@@ -83,6 +84,7 @@ $py = "pipeline\.venv\Scripts\python.exe"
 & $py pipeline\clips.py "sources\x.mp4" --mode=reedit    # force a mode: clips | reedit | visual
 & $py pipeline\clips.py "sources\x.mp4" --headline       # add hook text at the top of normal clips
 & $py pipeline\clips.py "sources\x.mp4" --category=gaming # override the detected category
+& $py pipeline\clips.py "sources\x.mp4" --no-ai          # offline picks: transcript + audio, no key, free
 & $py pipeline\trends.py "@SomeChannel, stoicism"         # learn from the niche's top Shorts (free)
 & $py pipeline\clips.py "sources\x.mp4" --trend=somechannel-stoicism   # pick clips like the winners
 ```
@@ -107,6 +109,8 @@ Or just ask your agent: *"clip this: https://youtu.be/…"*.
 | Talk, podcast, interview, vlog | `clips` | the strongest continuous moments, up to 10 |
 | Trailer, promo, fast-cut edit (≤ 7 min) | `reedit` | best lines in a new order, 3 shorts of 30–45 s with cross-fades |
 | Gameplay, sports, music | `visual` | moments picked by loudness peaks and fast cutting |
+
+`--no-ai` works in `clips` (and `visual`) — the moments are picked by excited language and audio energy instead of the AI. `reedit` needs the AI.
 
 Languages: the language is detected automatically, and titles and hashtags come back in it. Japanese, Chinese and Thai are handled.
 

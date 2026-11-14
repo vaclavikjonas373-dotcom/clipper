@@ -3,11 +3,13 @@
 
   audio → local transcript (word timings snapped to the audio)
         → mode by video type: clips (talk) · reedit (trailer) · visual (no speech)
-        → AI picks moments (NYO glm-5.3-flash) → snapped to clean sentences
+        → moments: AI picks (NYO glm-5.3-flash), or free local picks with --no-ai
+        → snapped to clean sentences
         → per-shot framing (face crop / two-speaker split / padded) → karaoke captions
         → clips + post text + report + contact sheet, each file checked
 
 Usage:  python clips.py "<video or YouTube link>" [--mode=clips|reedit|visual] [--headline]
+        python clips.py "<video>" --no-ai   offline picks: transcript + audio, no key
         python clips.py --check        test the setup
 Docs:   README.md and docs/ at the repo root.
 """
@@ -321,6 +323,8 @@ def _prompt(transcript, total, taken=()):
 
 def chat(content, model=None, max_tokens=4000):
     """One request to NYO (text, or a list with images); falls back down FALLBACK."""
+    if NO_AI:
+        return None                  # offline: never touch the network or the key
     for m in ([model] if model else []) + [x for x in FALLBACK if x != model]:
         try:
             r = requests.post(API, timeout=180, headers={"Authorization": f"Bearer {api_key()}"},
@@ -537,6 +541,109 @@ def pick_hooks(lines, words, total):
     return picks                                       # AI order = strongest first
 
 
+HYPE = ("oh my god", "oh my gosh", "what the", "no way", "let's go", "lets go", "les go",
+        "holy", "crazy", "insane", "god damn", "goddamn", "holy crap", "bro", "dude",
+        "unbelievable", "are you kidding", "you kidding", "my god", "wtf", "look at",
+        "look how", "watch this", "wait a minute", "are you serious", "chat")
+LAUGHS = ("haha", "lol", "lmao", "laughing", "hehe")
+_SKIP_TAGS = {"reacts", "react", "reacting", "official", "trailer", "launch", "video",
+              "full", "part", "highlight", "highlights", "shorts", "best", "moments",
+              "moment", "compilation", "gameplay", "watch", "new", "the", "and", "to"}
+
+
+def _hits(text, phrases):
+    """Whole-phrase matches, capped so one repeated word can't dominate."""
+    low = text.lower()
+    return min(3, sum(len(re.findall(rf"\b{re.escape(p)}\b", low)) for p in phrases))
+
+
+def _local_tags(video, cat):
+    """--no-ai hashtags: one topic, one niche, one broad — niche from the filename."""
+    niche = next((t for t in re.split(r"[^\w]+", video.stem.lower())
+                  if len(t) > 3 and t not in _SKIP_TAGS and not any(c.isdigit() for c in t)),
+                 cat if cat != "other" else "viral")
+    return ["#" + t for t in (cat if cat != "other" else "viral", niche, "shorts")]
+
+
+def pick_hooks_local(video, words, total, cat="other"):
+    """--no-ai fallback, free: the strongest sentence windows by excited language and
+    audio energy. Same editorial checks as the AI picks (_validate), then the free
+    local signals in score.rank(use_ai=False) decide the final order."""
+    import numpy as np
+    sents = sentences(words)
+    if len(sents) < 3:
+        return pick_by_energy(video, total)            # nothing readable: feel it out
+    raw = subprocess.run([FFMPEG, "-v", "error", "-i", str(video), "-ac", "1", "-ar", "8000",
+                          "-f", "f32le", "-"], capture_output=True).stdout
+    a = np.frombuffer(raw, np.float32)
+    n = len(a) // 4000                                 # loudness sampled every half second
+    db = 20 * np.log10(np.sqrt(np.mean(a[:n * 4000].reshape(n, 4000) ** 2, axis=1)) + 1e-9)
+    z = (db - db.mean()) / (db.std() + 1e-9) if n else np.zeros(1)
+
+    first_w, k = [], 0                                 # each sentence's first word
+    for s, _, _ in sents:
+        while k < len(words) and words[k]["s"] < s - 0.01:
+            k += 1
+        first_w.append(words[k] if k < len(words) else None)
+
+    L_mid = (MIN_S + MAX_S) / 2
+    cands = []
+    for i in range(len(sents)):
+        if first_w[i] is None or _bad_start(first_w[i]) or not _capital(first_w[i]):
+            continue                                   # a clip never opens on a filler
+        s = sents[i][0]
+        if s > total - MIN_S:
+            break
+        s0 = snap_start(words, s) if s > 2.5 else s    # _validate snaps again; aim right
+        ends = []                                      # sentence closes inside the length window
+        for j in range(i, len(sents)):
+            d = sents[j][2] - s0
+            if d > MAX_S - 1.5:
+                break
+            if d >= MIN_S + 1 and sents[j][2] not in ends:
+                ends.append(sents[j][2])
+        if not ends:
+            continue
+        # several ends per start: one mid-length pick would block a better short one
+        ends_at = []
+        for tgt in (MIN_S + 2, MIN_S + 0.45 * (MAX_S - MIN_S), L_mid, MAX_S - 3):
+            e = min(ends, key=lambda x: abs(x - (s0 + tgt)))
+            if e not in ends_at:
+                ends_at.append(e)
+        for end in ends_at:
+            j_end = next(j for j in range(i, len(sents)) if sents[j][2] >= end)
+            text = " ".join(x[1] for x in sents[i:j_end + 1])
+            seg = z[int(s0 * 2):max(int(end * 2), int(s0 * 2) + 1)]
+            mz, xz = float(seg.mean()), float(seg.max())
+            swing = float(seg.std())
+            excl_open = min(2, sents[i][1].count("!") + sents[i][1].count("?"))
+            hype_open = _hits(sents[i][1], HYPE)
+            excl = min(3, text.count("!") + text.count("?"))
+            hype, laugh = _hits(text, HYPE), _hits(text, LAUGHS)
+            digs = min(2, len(re.findall(r"\d", text)))
+            # the opening decides: its language counts most, the span's excitement second
+            sc = (1.3 * xz + 1.0 * mz + 0.6 * swing + 1.4 * hype_open + 1.1 * excl_open
+                  + 0.8 * hype + 0.6 * excl + 0.6 * laugh + 0.3 * digs)
+            why = ", ".join([l for on, l in ((hype_open > 0, "strong opening"), (xz > 1, "loud peak"),
+                                            (hype > 0, "excited language"), (laugh > 0, "laughter"),
+                                            (mz > 0.5, "high energy")) if on][:2]) or "quiet span"
+            cands.append({"start": s0, "end": end, "title": "", "hashtags": [],
+                          "reason": f"local pick: {why}", "headline": "", "pre": sc})
+    cands.sort(key=lambda c: -c["pre"])
+
+    picks = []
+    _validate(cands, words, total, picks)              # every candidate once, best first
+    print(f"   {len(picks)} of {len(cands)} local candidates passed the checks")
+
+    for p in picks:                                    # the AI normally writes these; fill locally
+        h = p["hook"] or p["title"] or ""
+        p["title"] = p["title"] or (h[:57] + ("..." if len(h) > 57 else ""))
+        p["headline"] = p["headline"] or " ".join(h.split()[:6])[:48]
+        p["hashtags"] = p["hashtags"] or _local_tags(video, cat)
+        p["reason"] = p["reason"] or "local picks"
+    return picks
+
+
 def _validate(cands, words, total, picks):
     """Snap each candidate to clean sentences; keep it only if it passes every rule."""
     for c in cands:
@@ -653,6 +760,28 @@ def ass_filter(sub):
 
 # ---------------- framing ----------------
 
+def cv_path(p):
+    """A path OpenCV's model reader can open. Its C++ file open is not
+    Unicode-aware on Windows, so a home folder with accents ("Jonáš")
+    mangles the bytes and the model "can't be read"; hand back a relative
+    or short ASCII path instead."""
+    s = str(p)
+    if s.isascii():
+        return s
+    try:
+        rel = os.path.relpath(s, os.getcwd())
+        if rel.isascii():
+            return rel
+    except ValueError:
+        pass
+    if sys.platform == "win32":
+        import ctypes
+        buf = ctypes.create_unicode_buffer(2048)
+        if ctypes.windll.kernel32.GetShortPathNameW(s, buf, 2048) and buf.value.isascii():
+            return buf.value
+    return s
+
+
 def crop_geometry(video):
     w, h = frame_size(video)
     ar = OUT_W / OUT_H
@@ -710,7 +839,7 @@ def plan_shots(video, start, end):
     if cap is None or not cap.isOpened():
         return [(0.0, dur, "pad", [])]
     w, h = frame_size(video)
-    det = cv2.FaceDetectorYN.create(str(model), "", (w, h), 0.6, 0.3, 5000)
+    det = cv2.FaceDetectorYN.create(cv_path(model), "", (w, h), 0.6, 0.3, 5000)
 
     _, fh, cw, _, _ = crop_geometry(video)
     shots = []
@@ -1024,7 +1153,21 @@ def check():
     line(Path(FFPROBE).exists() or shutil.which(FFPROBE) is not None, f"ffprobe: {FFPROBE}",
          "install ffmpeg (it includes ffprobe)")
     line((FONTS / "Montserrat-Black.ttf").exists(), "caption font", "pipeline/fonts is missing")
-    line((MODELS_DIR / "yunet.onnx").exists(), "face model", "pipeline/models/yunet.onnx is missing")
+    model = MODELS_DIR / "yunet.onnx"
+    line(model.exists(), "face model file", "pipeline/models/yunet.onnx is missing")
+    if model.exists():                     # load it the way runs do: after a capture
+        probe = ROOT / "dbg_check.mp4"     # git-ignored; removed below
+        subprocess.run([FFMPEG, "-y", "-v", "error", "-f", "lavfi",
+                        "-i", "color=c=gray:s=320x180:d=0.4", "-frames:v", "3",
+                        str(probe)], capture_output=True)
+        code = ("import cv2,sys;cap=cv2.VideoCapture(sys.argv[2]);ok,fr=cap.read();cap.release();"
+                "assert ok,'no test frame';d=cv2.FaceDetectorYN.create(sys.argv[1],'',(320,180),"
+                "0.6,0.3,5000);d.detect(fr);print('ok')")
+        r = subprocess.run([sys.executable, "-c", code, cv_path(model), str(probe)],
+                           capture_output=True, text=True)
+        probe.unlink(missing_ok=True)
+        line(r.returncode == 0, "face model loads (after a capture)",
+             "OpenCV can't read it here: " + r.stderr.strip()[-120:])
     line((ROOT / "transcribe_worker.py").exists(), "speech worker", "update the full pipeline folder")
     for mod in ("faster_whisper", "cv2", "numpy", "yt_dlp"):
         result = subprocess.run([sys.executable, "-c", f"import {mod}"], capture_output=True)
@@ -1083,12 +1226,15 @@ def main():
     if mode == "reedit":                  # trailer / promo: assemble, don't cut
         import reedit
         return reedit.run(video)
-    if NO_AI and mode != "visual":
-        sys.exit("--no-ai only works with --mode=visual (picking moments from speech needs the AI)")
+    if NO_AI and mode == "reedit":
+        sys.exit("--no-ai can't re-assemble a trailer (reedit orders lines with the AI); try --mode=clips")
     import score
     cat = score.category(sentences(words), cat_arg or ("gaming" if mode == "visual" else None))
-    print(f"   category: {cat}" + ("" if cat_arg else " (detected; override with --category=)"))
-    picks = pick_by_energy(video, total) if mode == "visual" else pick_hooks(lines, words, total)
+    cat_src = "forced" if cat_arg else ("guessed offline" if NO_AI else "detected")
+    print(f"   category: {cat} ({cat_src}; override with --category=)")
+    picks = (pick_by_energy(video, total) if mode == "visual"
+             else pick_hooks_local(video, words, total, cat) if NO_AI
+             else pick_hooks(lines, words, total))
     if not picks:
         sys.exit("no usable clips")
     print(f"   scoring {len(picks)} candidates (voice, picture, AI look)...")
@@ -1116,7 +1262,7 @@ def main():
     (OUT / "report.md").write_text(
         f"# Clips — {video.name}\n\n"
         f"{len(picks)} clips · {total/60:.0f} min source · {mode} mode · {LANG} · "
-        f"model `{USED['model'] or ('none' if mode == 'visual' else MODEL)}`\n\n"
+        f"model `{USED['model'] or ('none (offline picks)' if NO_AI or mode == 'visual' else MODEL)}`\n\n"
         f"![review]({sheet.name})\n\n"
         f"Category **{cat}** · clips numbered best first by score (50 = average for this "
         f"video; see docs/HOW-IT-WORKS.md#virality-score)\n\n"

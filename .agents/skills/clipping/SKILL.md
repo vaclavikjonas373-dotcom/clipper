@@ -42,6 +42,7 @@ From the repository root. The Python inside the setup's virtual environment:
 <python> pipeline/clips.py "sources/<video>.mp4"     # or a YouTube link in quotes
 <python> pipeline/clips.py "<video>" --mode=reedit   # force clips | reedit | visual
 <python> pipeline/clips.py "<video>" --headline      # hook text at the top of normal clips
+<python> pipeline/clips.py "<video>" --no-ai         # offline picks: excited language + audio energy, free, no key
 <python> pipeline/clips.py --check                   # test the setup (free)
 <python> pipeline/clips.py "<video>" --category=gaming   # override the detected category
 <python> pipeline/trends.py "@Channel, hashtag"          # learn from a niche's top Shorts
@@ -72,7 +73,9 @@ From the repository root. The Python inside the setup's virtual environment:
   Without `--retarget`, it refuses a different checkout. Its folder resolution
   clears `CDPATH`; duplicated paths are a shell capture bug, not Hermes merging.
 - Cost: only the AI pick is paid, about 1-2 US cents a run (about 5 cents for
-  a 3-hour video). Transcription runs locally and is cached.
+  a 3-hour video). Transcription runs locally and is cached. With `--no-ai`
+  nothing is paid: moments are picked offline from excited language and audio
+  energy (works for `clips` and `visual`; `reedit` needs the AI).
 
 ## Which mode fits the video
 

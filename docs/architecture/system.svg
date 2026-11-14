@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1920" viewBox="0 0 1120 1920" role="img" aria-labelledby="title desc">
 <title id="title">Clipper system architecture</title>
-<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection and validation; visual mode uses signal peaks; both are ranked. Re-edits assemble AI-selected lines and bypass ranking. Shared framing, captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs and transcript cache support the pipeline. AI-marked modules call the external NYO API.</desc>
+<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection or offline transcript and energy picks with --no-ai, then the same validation; visual mode uses signal peaks; both are ranked. Re-edits assemble AI-selected lines and bypass ranking. Shared framing, captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs and transcript cache support the pipeline. AI-marked modules call the external NYO API unless --no-ai skips it.</desc>
 <defs>
 <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#3468C5" stroke-width="1.5"/></marker>
 <marker id="aiarrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#A85B15" stroke-width="1.5"/></marker>
@@ -90,7 +90,7 @@
 <text x="81" y="783" font-size="20" font-weight="700" style="fill:#172E42">Clips</text>
 <rect x="239" y="765" width="32" height="23" rx="6" fill="#FFF0DD" stroke="#E6C39C"/>
 <text x="246" y="781" font-size="12" font-weight="700" style="fill:#A85B15">AI</text>
-<text x="81" y="810" font-size="18" style="fill:#5E7184">AI hook selection</text>
+<text x="81" y="810" font-size="18" style="fill:#5E7184">AI or --no-ai picks</text>
 <text x="81" y="835" font-size="18" style="fill:#5E7184">Talks / podcasts</text>
 <text x="81" y="861" font-size="15" style="fill:#3468C5">clips.py · pick_hooks()</text>
 <rect x="315" y="754" width="220" height="122" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
@@ -124,7 +124,7 @@
 <rect x="489" y="1045" width="32" height="23" rx="6" fill="#FFF0DD" stroke="#E6C39C"/>
 <text x="496" y="1061" font-size="12" font-weight="700" style="fill:#A85B15">AI</text>
 <text x="81" y="1090" font-size="18" style="fill:#5E7184">Voice + picture + category weights</text>
-<text x="81" y="1115" font-size="18" style="fill:#5E7184">AI review of 3 phone-cropped frames</text>
+<text x="81" y="1115" font-size="18" style="fill:#5E7184">AI reviews 3 frames; --no-ai keeps local</text>
 <text x="81" y="1133" font-size="15" style="fill:#3468C5">score.py · category() / rank()</text>
 <path d="M675 986 L675 1187 L425 1187" fill="none" stroke="#3468C5" stroke-width="2"/>
 <text x="550" y="1080" font-size="16" style="fill:#5E7184">New line order</text>
@@ -137,7 +137,7 @@
 <text x="860" y="966" font-size="17" style="fill:#5E7184">Text + frame requests</text>
 <text x="860" y="996" font-size="17" style="fill:#5E7184">AI-tagged modules</text>
 <text x="860" y="1022" font-size="17" style="fill:#5E7184">use this endpoint.</text>
-<text x="860" y="1067" font-size="17" style="fill:#A85B15">--no-ai: visual only</text>
+<text x="860" y="1067" font-size="17" style="fill:#A85B15">--no-ai: offline picks</text>
 <path d="M810 801 L825 801 L825 941 L840 941" fill="none" stroke="#A85B15" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#aiarrow)"/>
 <text x="850" y="804" font-size="14" style="fill:#A85B15">AI dependency</text>
 <rect x="840" y="1131" width="240" height="159" rx="14" fill="#F2F4F7" stroke="#D2DAE4"/>

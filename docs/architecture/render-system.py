@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent
 INK, MUTED, BLUE, AMBER = '#172E42', '#5E7184', '#3468C5', '#A85B15'
 parts = ['''<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1920" viewBox="0 0 1120 1920" role="img" aria-labelledby="title desc">
 <title id="title">Clipper system architecture</title>
-<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection and validation; visual mode uses signal peaks; both are ranked. Re-edits assemble AI-selected lines and bypass ranking. Shared framing, captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs and transcript cache support the pipeline. AI-marked modules call the external NYO API.</desc>
+<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection or offline transcript and energy picks with --no-ai, then the same validation; visual mode uses signal peaks; both are ranked. Re-edits assemble AI-selected lines and bypass ranking. Shared framing, captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs and transcript cache support the pipeline. AI-marked modules call the external NYO API unless --no-ai skips it.</desc>
 <defs>
 <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#3468C5" stroke-width="1.5"/></marker>
 <marker id="aiarrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#A85B15" stroke-width="1.5"/></marker>
@@ -113,7 +113,7 @@ text(660,566,'read / write',14,MUTED)
 section(65,716,'2','SELECT A PROCESSING PATH')
 for cx in (175,425,675):
     flow([(425,673),(425,731),(cx,731),(cx,754)])
-node(65,754,220,122,'Clips',['AI hook selection','Talks / podcasts'],True,'clips.py · pick_hooks()')
+node(65,754,220,122,'Clips',['AI or --no-ai picks','Talks / podcasts'],True,'clips.py · pick_hooks()')
 node(315,754,220,122,'Visual',['Energy + cut peaks','Gameplay / sports'],False,'pick_by_energy()')
 node(565,754,220,122,'Re-edit',['AI line selection','Trailers / promos'],True,'reedit.py · pick_edits()')
 node(65,900,220,86,'Validate',['Sentence / length / overlap'])
@@ -124,7 +124,7 @@ for cx in (175,425,675):
 # Continuous modes converge at ranking; the story lane bypasses it.
 flow([(175,986),(175,1012),(300,1012),(300,1034)])
 flow([(425,986),(425,1012),(300,1012)],arrow=False)
-node(65,1034,470,114,'Hook ranking',['Voice + picture + category weights','AI review of 3 phone-cropped frames'],True,'score.py · category() / rank()')
+node(65,1034,470,114,'Hook ranking',['Voice + picture + category weights','AI reviews 3 frames; --no-ai keeps local'],True,'score.py · category() / rank()')
 flow([(675,986),(675,1187),(425,1187)],arrow=False)
 text(550,1080,'New line order',16,MUTED)
 text(550,1105,'Skips ranking',16,MUTED)
@@ -138,7 +138,7 @@ text(860,930,'glm-5.3-flash',19,AMBER)
 text(860,966,'Text + frame requests',17,MUTED)
 text(860,996,'AI-tagged modules',17,MUTED)
 text(860,1022,'use this endpoint.',17,MUTED)
-text(860,1067,'--no-ai: visual only',17,AMBER)
+text(860,1067,'--no-ai: offline picks',17,AMBER)
 flow([(810,801),(825,801),(825,941),(840,941)],True)
 text(850,804,'AI dependency',14,AMBER)
 rect(840,1131,240,159,'#F2F4F7','#D2DAE4',14)

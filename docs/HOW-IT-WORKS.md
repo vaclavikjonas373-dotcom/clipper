@@ -7,7 +7,8 @@ video or YouTube link
   → audio decoded, transcribed in a local worker (faster-whisper large-v3-turbo, word timings)
   → word timings snapped to the audio
   → mode chosen: clips · reedit · visual
-  → the AI picks moments (NYO glm-5.3-flash, fallbacks glm-5, qwen3-30b)
+  → the AI picks moments (NYO glm-5.3-flash, fallbacks glm-5, qwen3-30b),
+    or offline picks with --no-ai (excited language + audio energy, free)
   → each pick snapped to clean sentences and checked
   → framing per camera shot, karaoke captions, loudness to -14 LUFS
   → clips + post text + report + contact sheet; every file checked
@@ -34,8 +35,9 @@ The run prints what it decided, e.g. `profile: 1920x1080 · 129 words/min · 29 
 ## Picking moments (`clips` mode)
 
 - The AI reads the transcript one sentence per line, with timestamps, plus the editorial brief from the skill. It returns 15 candidates, strongest first.
+- **Offline (`--no-ai`):** no key needed. Every sentence start is a candidate; each gets one to four sentence closes as its end (short to long, inside the length window). Candidates are ranked by excited language (hype phrases, exclamations, laughter, numbers — the opening sentence counts most), loudness peaks and energy swing, then run through the same checks below. Titles, hashtags and the category are derived locally (category from keyword counts, or `--category=`).
 - Each candidate is moved to the nearest clean sentence start (capitalised, not a filler like *And / So / Yeah*, not a Japanese or Chinese particle) and ends just after a sentence closes.
-- Candidates that are too short or long, open badly, or overlap a stronger pick are dropped. If fewer than 10 survive, the AI is asked again for more (`ROUNDS`), told which parts are already used.
+- Candidates that are too short or long, open badly, or overlap a stronger pick are dropped. If fewer than 10 survive, the picker is asked again for more (`ROUNDS`), told which parts are already used.
 - Long videos are read in 40-minute windows, so a 3-hour podcast is 5 requests (about 5 cents).
 - The report shows the **real** opening words of each clip, not what the AI claimed.
 
@@ -51,7 +53,7 @@ After the quality checks, every surviving candidate gets a score from its first 
 | dead air | silence before and inside the opening | free |
 | face | size of the largest face | free |
 | motion, cuts | frame-to-frame change, camera cuts | free |
-| AI look | `glm-5.3-flash` views 3 frames **as cropped for the phone** and rates expression and visual interest 1–10 | ~0.5 cent / video |
+| AI look | `glm-5.3-flash` views 3 frames **as cropped for the phone** and rates expression and visual interest 1–10 (skipped with `--no-ai`) | ~0.5 cent / video |
 | strong line | the AI's own ranking from the transcript | — |
 
 Signals are compared **within the video**, then weighted by **category**. A gaming or sports clip is judged on motion and energy; a podcast on voice, face and the line itself. The category is detected from the transcript (`podcast, talk, education, motivation, comedy, drama, news, gaming, sports, music, other`), or set with `--category=`. The weights are in `WEIGHTS` in `score.py`; they're reasoned starting values, to be tuned against real view counts.
@@ -146,7 +148,8 @@ Changing `TIMING` (a version label) makes cached transcripts re-snap their word 
 ## Tests
 
 - `python pipeline/clips.py --check`: setup self-test. `--check --no-ai` skips the key.
-- `python pipeline/clips.py <video> --mode=visual --no-ai`: a full offline run, with no key and no AI.
+- `python pipeline/clips.py <video> --mode=clips --no-ai`: a full offline run, with no key and no AI (any mode except `reedit`).
+- `tests/test_noai_picks.py`: offline test of the local picker (synthetic transcript, no network).
 - `.github/workflows/checks.yml` runs on every push and pull request. It installs with the real setup scripts on **Windows and Linux**, generates a test video, and clips it offline (`CLIPS_WHISPER=tiny` keeps the download small).
 
 ## Known limits

@@ -3,6 +3,30 @@
 Newest first. Every change to code, settings, rules or docs gets a dated entry here
 (see `AGENTS.md`).
 
+## 2026-11-14 — free offline moment picking (`--no-ai`)
+- Added `pick_hooks_local()` to `pipeline/clips.py`: with `--no-ai`, `clips` mode
+  picks moments without any API. Sentence-start candidates, one to four sentence
+  closes as their end (short to long inside the length window, so mid-length
+  picks don't block better short ones), ranked by excited language (hype
+  phrases, exclamations, laughter, numbers — opening sentence weighted highest)
+  plus loudness peak/energy, then run through the same `_validate` checks and
+  free local signals in `score.rank(use_ai=False)`. Titles, hashtags and the
+  category are derived locally (`score._guess_category()` or `--category=`).
+- `--no-ai` previously worked only in `visual` mode; `reedit` still needs the AI
+  (clearer error message). `chat()` returns `None` offline so no path touches
+  the network or key; report notes "offline picks".
+- Fixed face detection failing on machines whose user path has non-ASCII
+  characters (e.g. "Jonáš"): OpenCV's model reader is not Unicode-aware on
+  Windows, so `pipeline/models/yunet.onnx` "couldn't be read" from an absolute
+  path. New `clips.cv_path()` hands OpenCV a relative or short ASCII path;
+  `--check` now really loads the detector after opening a capture, so this
+  class of failure can't pass silently again.
+- Added `tests/test_noai_picks.py` (offline, synthetic transcript) covering the
+  editorial rules and the category guess.
+- Updated README, `docs/HOW-IT-WORKS.md`, the skill, the system/pipeline
+  diagrams (`render-system.py`, `pipeline.d2`, overview footer) and their
+  rendered files.
+
 ## 2026-10-23 — README architecture research layer
 - Updated the README's main system graphic and alt text to show agent research,
   optional scraping, campaign fit/permission checks and local context before the

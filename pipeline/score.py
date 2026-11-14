@@ -54,6 +54,26 @@ LABEL = dict(rank="strong line", look="striking picture", pitch="animated voice"
 
 # ---------------- category ----------------
 
+_HINTS = {   # --no-ai: category from word counts instead of one AI request
+    "gaming":     "game gaming gameplay stream streamer level boss playing player bro chat".split(),
+    "education":  "learn learning lesson tutorial explain explained theory history science study".split(),
+    "motivation": "believe discipline succeed success mindset grind dream goals win never quit".split(),
+    "comedy":     "funny funny hilarious joke meme comedy lol lmao skit prank".split(),
+    "podcast":    "podcast episode guest interview question show talking advice story".split(),
+}
+
+
+def _guess_category(text):
+    """Offline fallback for category(): most keyword hits wins, talk is the default."""
+    low = text.lower()
+    best, hits = "talk", 0
+    for cat, words in _HINTS.items():
+        n = sum(low.count(w) for w in words)
+        if n > hits:
+            best, hits = cat, n
+    return best
+
+
 def category(sentences, forced=None):
     """Content category from the opening of the transcript (one cheap request)."""
     if forced:
@@ -61,6 +81,8 @@ def category(sentences, forced=None):
     text = "\n".join(t for _, t, _ in sentences[:60])[:4000]
     if not text.strip():
         return "other"
+    if C.NO_AI:
+        return _guess_category(text)
     ans = C.chat("Which ONE category fits this video best? Answer with only the word.\n"
                  f"Categories: {', '.join(CATEGORIES)}\n\nTranscript start:\n{text}",
                  max_tokens=1500) or ""
@@ -110,7 +132,7 @@ def picture(video, s, e, det_size):
     import cv2
     cap = cv2.VideoCapture(str(video))
     w, h = det_size
-    det = cv2.FaceDetectorYN.create(str(C.MODELS_DIR / "yunet.onnx"), "", (w, h), 0.6, 0.3, 5000)
+    det = cv2.FaceDetectorYN.create(C.cv_path(C.MODELS_DIR / "yunet.onnx"), "", (w, h), 0.6, 0.3, 5000)
     faces, diffs, prev, t = [], [], None, s
     while t < e:
         cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
