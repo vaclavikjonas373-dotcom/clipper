@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1920" viewBox="0 0 1120 1920" role="img" aria-labelledby="title desc">
 <title id="title">Clipper system architecture</title>
-<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection or offline transcript and energy picks with --no-ai, then the same validation; visual mode uses signal peaks; both are ranked. Re-edits assemble AI-selected lines and bypass ranking. Shared framing, captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs and transcript cache support the pipeline. AI-marked modules call the external NYO API unless --no-ai skips it.</desc>
+<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection or offline transcript and energy picks with --no-ai, then the same validation; visual mode uses signal peaks; both are ranked, including a free speech-match signal. Re-edits assemble AI-selected lines and bypass ranking. Shared framing with context emphasis (verified spoken words matched to on-screen objects drive a zoom or a focus reframe, with small in-project sound effects), captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs, the transcript cache and a cached object-detector index support the pipeline. AI-marked modules call the external NYO API unless --no-ai skips it.</desc>
 <defs>
 <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#3468C5" stroke-width="1.5"/></marker>
 <marker id="aiarrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#A85B15" stroke-width="1.5"/></marker>
@@ -73,12 +73,13 @@
 <text x="860" y="527" font-size="20" font-weight="700" style="fill:#172E42">Campaign settings</text>
 <text x="860" y="553" font-size="17" style="fill:#3468C5">settings.local.json</text>
 <text x="860" y="582" font-size="16" style="fill:#5E7184">trends.py → briefs</text>
-<rect x="840" y="625" width="240" height="147" rx="14" fill="#F2F4F7" stroke="#D2DAE4"/>
-<text x="860" y="659" font-size="16" font-weight="700" style="fill:#5E7184">TRANSCRIPT CACHE</text>
-<text x="860" y="696" font-size="19" font-weight="700" style="fill:#172E42">*.transcript.json</text>
-<text x="860" y="727" font-size="17" style="fill:#5E7184">Reuse on the next run</text>
-<text x="860" y="751" font-size="16" style="fill:#3468C5">Local · output/&lt;video&gt;/</text>
-<path d="M565 535 L605 535 L605 575 L825 575 L825 697 L840 697" fill="none" stroke="#3468C5" stroke-width="2"/>
+<rect x="840" y="625" width="240" height="175" rx="14" fill="#F2F4F7" stroke="#D2DAE4"/>
+<text x="860" y="659" font-size="16" font-weight="700" style="fill:#5E7184">TRANSCRIPT + INDEX CACHE</text>
+<text x="860" y="690" font-size="19" font-weight="700" style="fill:#172E42">*.transcript.json</text>
+<text x="860" y="716" font-size="19" font-weight="700" style="fill:#172E42">*.visualindex.json</text>
+<text x="860" y="747" font-size="17" style="fill:#5E7184">Reuse on the next run</text>
+<text x="860" y="771" font-size="16" style="fill:#3468C5">Local · output/&lt;video&gt;/</text>
+<path d="M565 535 L605 535 L605 575 L825 575 L825 690 L840 690" fill="none" stroke="#3468C5" stroke-width="2"/>
 <text x="660" y="566" font-size="14" style="fill:#5E7184">read / write</text>
 <rect x="65" y="699" width="26" height="24" rx="6" fill="#172E42" stroke="#172E42"/>
 <text x="73" y="716" font-size="13" font-weight="700" style="fill:#FFFFFF">2</text>
@@ -123,7 +124,7 @@
 <text x="81" y="1063" font-size="20" font-weight="700" style="fill:#172E42">Hook ranking</text>
 <rect x="489" y="1045" width="32" height="23" rx="6" fill="#FFF0DD" stroke="#E6C39C"/>
 <text x="496" y="1061" font-size="12" font-weight="700" style="fill:#A85B15">AI</text>
-<text x="81" y="1090" font-size="18" style="fill:#5E7184">Voice + picture + category weights</text>
+<text x="81" y="1090" font-size="18" style="fill:#5E7184">Voice + picture + match + category weights</text>
 <text x="81" y="1115" font-size="18" style="fill:#5E7184">AI reviews 3 frames; --no-ai keeps local</text>
 <text x="81" y="1133" font-size="15" style="fill:#3468C5">score.py · category() / rank()</text>
 <path d="M675 986 L675 1187 L425 1187" fill="none" stroke="#3468C5" stroke-width="2"/>
@@ -148,33 +149,35 @@
 <rect x="65" y="1203" width="26" height="24" rx="6" fill="#172E42" stroke="#172E42"/>
 <text x="73" y="1220" font-size="13" font-weight="700" style="fill:#FFFFFF">3</text>
 <text x="103" y="1220" font-size="15" font-weight="700" style="fill:#5E7184">RENDER &amp; VERIFY</text>
-<rect x="65" y="1239" width="220" height="96" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
+<rect x="65" y="1239" width="220" height="118" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
 <text x="81" y="1268" font-size="20" font-weight="700" style="fill:#172E42">Shot framing</text>
 <text x="81" y="1295" font-size="18" style="fill:#5E7184">Crop / split / pad</text>
-<text x="81" y="1320" font-size="15" style="fill:#3468C5">OpenCV · YuNet</text>
-<rect x="315" y="1239" width="220" height="96" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
+<text x="81" y="1320" font-size="18" style="fill:#5E7184">+ focus reframe</text>
+<text x="81" y="1342" font-size="15" style="fill:#3468C5">OpenCV · YuNet · YOLOX-S</text>
+<rect x="315" y="1239" width="220" height="118" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
 <text x="331" y="1268" font-size="20" font-weight="700" style="fill:#172E42">Timed captions</text>
 <text x="331" y="1295" font-size="18" style="fill:#5E7184">Word highlighting</text>
-<text x="331" y="1320" font-size="15" style="fill:#3468C5">ASS · Montserrat</text>
-<rect x="565" y="1239" width="220" height="96" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
+<text x="331" y="1342" font-size="15" style="fill:#3468C5">ASS · Montserrat</text>
+<rect x="565" y="1239" width="220" height="118" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
 <text x="581" y="1268" font-size="20" font-weight="700" style="fill:#172E42">Video assembly</text>
-<text x="581" y="1295" font-size="18" style="fill:#5E7184">Re-edit cross-fades</text>
-<text x="581" y="1320" font-size="15" style="fill:#3468C5">FFmpeg · −14 LUFS</text>
+<text x="581" y="1295" font-size="18" style="fill:#5E7184">Context zoom + sfx</text>
+<text x="581" y="1320" font-size="18" style="fill:#5E7184">Re-edit cross-fades</text>
+<text x="581" y="1342" font-size="15" style="fill:#3468C5">FFmpeg · −14 LUFS</text>
 <path d="M425 1239 L425 1230 L175 1230 L175 1239" fill="none" stroke="#3468C5" stroke-width="2"/>
 <path d="M425 1230 L675 1230 L675 1239" fill="none" stroke="#3468C5" stroke-width="2"/>
-<path d="M175 1335 L175 1355 L425 1355" fill="none" stroke="#3468C5" stroke-width="2"/>
-<path d="M425 1335 L425 1355 L425 1355" fill="none" stroke="#3468C5" stroke-width="2"/>
-<path d="M675 1335 L675 1355 L425 1355" fill="none" stroke="#3468C5" stroke-width="2"/>
-<rect x="245" y="1372" width="360" height="56" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
-<text x="261" y="1401" font-size="20" font-weight="700" style="fill:#172E42">Verify picture / sound / length</text>
-<path d="M425 1355 L425 1372" fill="none" stroke="#3468C5" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M425 1428 L425 1475" fill="none" stroke="#3468C5" stroke-width="2" marker-end="url(#arrow)"/>
-<rect x="40" y="1475" width="1040" height="142" rx="14" fill="#EAF4EE" stroke="#ABCAB8"/>
-<text x="60" y="1505" font-size="16" font-weight="700" style="fill:#3D7554">LOCAL OUTPUTS</text>
-<text x="60" y="1540" font-size="22" font-weight="700" style="fill:#172E42">Clips / visual</text>
-<text x="60" y="1569" font-size="18" style="fill:#5E7184">01-*.mp4 · *.txt · report.md · review.png</text>
-<text x="610" y="1540" font-size="22" font-weight="700" style="fill:#172E42">Re-edits → reedit/</text>
-<text x="610" y="1569" font-size="18" style="fill:#5E7184">A / B / C shorts · *.txt · report.md</text>
-<text x="610" y="1597" font-size="16" style="fill:#5E7184">compare.mp4 when a prior clip exists</text>
-<text x="40" y="1650" font-size="16" style="fill:#5E7184">Solid: workflow / data flow · AI badges: NYO · Dashed: external API</text>
+<path d="M175 1357 L175 1374 L425 1374" fill="none" stroke="#3468C5" stroke-width="2"/>
+<path d="M425 1357 L425 1374 L425 1374" fill="none" stroke="#3468C5" stroke-width="2"/>
+<path d="M675 1357 L675 1374 L425 1374" fill="none" stroke="#3468C5" stroke-width="2"/>
+<rect x="245" y="1388" width="360" height="56" rx="12" fill="#FFFFFF" stroke="#CFD9E4"/>
+<text x="261" y="1417" font-size="20" font-weight="700" style="fill:#172E42">Verify picture / sound / length</text>
+<path d="M425 1374 L425 1388" fill="none" stroke="#3468C5" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M425 1444 L425 1493" fill="none" stroke="#3468C5" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="40" y="1493" width="1040" height="142" rx="14" fill="#EAF4EE" stroke="#ABCAB8"/>
+<text x="60" y="1523" font-size="16" font-weight="700" style="fill:#3D7554">LOCAL OUTPUTS</text>
+<text x="60" y="1558" font-size="22" font-weight="700" style="fill:#172E42">Clips / visual</text>
+<text x="60" y="1587" font-size="18" style="fill:#5E7184">01-*.mp4 · *.txt · report.md · review.png</text>
+<text x="610" y="1558" font-size="22" font-weight="700" style="fill:#172E42">Re-edits → reedit/</text>
+<text x="610" y="1587" font-size="18" style="fill:#5E7184">A / B / C shorts · *.txt · report.md</text>
+<text x="610" y="1615" font-size="16" style="fill:#5E7184">compare.mp4 when a prior clip exists</text>
+<text x="40" y="1668" font-size="16" style="fill:#5E7184">Solid: workflow / data flow · AI badges: NYO · Dashed: external API</text>
 </g></svg>

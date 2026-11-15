@@ -7,6 +7,7 @@ Signals, all measured on the hook window (first HOOK_S seconds) of each clip:
   voice   energy swing, pitch variation (monotone vs animated), speaking speed,
           dead air before / inside the hook                     — local, free
   picture face size, motion, camera cuts                        — local, free
+  match   the hook's words are verifiably on screen (context.py) — local, free
   look    the AI views HOOK_FRAMES frames: expression and visual
           interest, 1-10 (NYO glm-5.3-flash, ~$0.0001 a frame)
   rank    the AI's own ranking of the moment from the transcript
@@ -31,7 +32,7 @@ CATEGORIES = ["podcast", "talk", "education", "motivation", "comedy", "drama",
 
 # how much each signal counts, per category (signals are z-scores within the video)
 _TALK = dict(rank=1.2, look=1.0, pitch=1.0, energy=0.8, rate=0.6, dead=-1.0,
-             face=0.8, motion=0.2, cuts=0.1)
+             face=0.8, motion=0.2, cuts=0.1, match=0.5)
 WEIGHTS = {
     "podcast": _TALK, "talk": _TALK, "education": dict(_TALK, rate=0.3, rank=1.4),
     "motivation": dict(_TALK, pitch=1.2, energy=1.0),
@@ -39,17 +40,18 @@ WEIGHTS = {
     "drama": dict(_TALK, look=1.3, face=1.0, motion=0.5),
     "news": dict(_TALK, rank=1.5, rate=0.4, pitch=0.6),
     "gaming": dict(rank=0.8, look=1.0, pitch=0.2, energy=1.2, rate=0.1, dead=-0.3,
-                   face=0.2, motion=1.2, cuts=1.0),
+                   face=0.2, motion=1.2, cuts=1.0, match=0.5),
     "sports": dict(rank=0.6, look=1.0, pitch=0.2, energy=1.2, rate=0.1, dead=-0.2,
-                   face=0.2, motion=1.3, cuts=1.0),
+                   face=0.2, motion=1.3, cuts=1.0, match=0.5),
     "music": dict(rank=0.4, look=1.0, pitch=0.3, energy=1.3, rate=0.0, dead=-0.2,
-                  face=0.5, motion=1.0, cuts=1.0),
+                  face=0.5, motion=1.0, cuts=1.0, match=0.5),
     "other": _TALK,
 }
 
 LABEL = dict(rank="strong line", look="striking picture", pitch="animated voice",
              energy="punchy delivery", rate="fast pace", dead="no dead air",
-             face="close face", motion="movement", cuts="quick cuts")
+             face="close face", motion="movement", cuts="quick cuts",
+             match="matches the words")
 
 
 # ---------------- category ----------------
@@ -127,30 +129,50 @@ def voice(audio, words, s, e):
                 dead=float(lead + sum(g for g in gaps if g > 0.3)))
 
 
+_PICTURE = {}
+
 def picture(video, s, e, det_size):
-    """largest face share of the frame, motion, cuts — over the hook window."""
+    """largest face share of the frame, motion, cuts — over the hook window.
+
+    One seek, then an ordered decode: seeking to every 0.2 s sample re-decodes
+    from the previous keyframe (~1.3 s a sample on long-GOP sources; ~10 ms
+    reading forward). Faces are sampled every 0.75 s, at most 4; motion diffs
+    compare frames at least 0.18 s apart — the old 0.2 s grid — never
+    consecutive frames. Cached per window: candidates often share a hook start.
+    """
     import cv2
+    key = (str(video), round(s, 3), round(e, 3))
+    if key in _PICTURE:
+        return dict(_PICTURE[key])
     cap = cv2.VideoCapture(str(video))
     w, h = det_size
     det = cv2.FaceDetectorYN.create(C.cv_path(C.MODELS_DIR / "yunet.onnx"), "", (w, h), 0.6, 0.3, 5000)
-    faces, diffs, prev, t = [], [], None, s
-    while t < e:
-        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+    faces, diffs, prev, prev_t, next_face = [], [], None, None, 0
+    cap.set(cv2.CAP_PROP_POS_MSEC, s * 1000)           # one seek, then forward
+    while True:
         ok, fr = cap.read()
         if not ok:
             break
-        if len(faces) < 4 and abs((t - s) % 0.75) < 0.1:
+        t = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+        if t >= e - 1e-3:
+            break
+        if next_face < 4 and t - s + 1e-3 >= next_face * 0.75:
             _, f = det.detect(fr)
             f = [x for x in (f if f is not None else []) if x[14] >= C.FACE_CONF]
             faces.append(max((x[2] * x[3] for x in f), default=0) / (w * h))
+            next_face += 1
         g = cv2.cvtColor(cv2.resize(fr, (160, 90)), cv2.COLOR_BGR2GRAY).astype(np.float32)
-        if prev is not None:
+        if prev is None:
+            prev, prev_t = g, t
+        elif t - prev_t >= 0.18:                       # ~the old 0.2 s sampling grid
             diffs.append(float(np.mean(np.abs(g - prev))))
-        prev, t = g, t + 0.2
+            prev, prev_t = g, t
     cap.release()
-    return dict(face=float(np.mean(faces)) if faces else 0.0,
-                motion=float(np.median(diffs)) if diffs else 0.0,
-                cuts=float(len(C.shot_cuts(video, s, e))))
+    out = dict(face=float(np.mean(faces)) if faces else 0.0,
+               motion=float(np.median(diffs)) if diffs else 0.0,
+               cuts=float(len(C.shot_cuts(video, s, e))))
+    _PICTURE[key] = out
+    return dict(out)
 
 
 def look(video, s, e, cat):
@@ -201,8 +223,13 @@ def _z(xs):
     return np.clip((xs - np.median(xs)) / sd, -3, 3)
 
 
-def rank(video, audio, words, picks, cat, use_ai=True):
-    """Score every candidate, return them best first with score and reasons."""
+def rank(video, audio, words, picks, cat, use_ai=True, index=None):
+    """Score every candidate, return them best first with score and reasons.
+
+    `index` (context.index) adds the match signal: how much of the hook's
+    words are verifiably on screen. None keeps the signal at zero for all,
+    which weighs nothing.
+    """
     if not picks:
         return picks
     size = C.frame_size(video)
@@ -213,6 +240,10 @@ def rank(video, audio, words, picks, cat, use_ai=True):
         sig.update(picture(video, s, e, size))
         sig["rank"] = -i                       # AI's order: earlier = stronger
         sig["look"], p["look_why"] = look(video, s, e, cat) if use_ai else (5.0, "")
+        sig["match"] = 0.0
+        if index is not None:
+            import context
+            sig["match"] = context.hook_match(index, words, s, e)
         return sig
     with cf.ThreadPoolExecutor(4) as ex:
         sigs = list(ex.map(one, enumerate(picks)))

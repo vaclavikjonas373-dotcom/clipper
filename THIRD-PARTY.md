@@ -6,6 +6,7 @@
 | Bricolage Grotesque (Bold), Instrument Sans (Regular) | `docs/architecture/fonts/` | SIL Open Font License 1.1 (bundled `*-OFL.txt` files) |
 | Pillow (documentation graphic renderer only) | optional local install | HPND |
 | YuNet face detector (`face_detection_yunet_2023mar.onnx`) | `pipeline/models/yunet.onnx` | MIT, from OpenCV Zoo (github.com/opencv/opencv_zoo) |
+| YOLOX-S object detector (`object_detection_yolox_2022nov.onnx`) | downloaded at first run into `pipeline/models/object_detection_yolox.onnx` | Apache-2.0, from OpenCV Zoo (huggingface.co/opencv/object_detection_yolox) |
 | faster-whisper, Whisper large-v3-turbo | installed / downloaded at setup | MIT |
 | OpenCV, NumPy, requests, yt-dlp | installed at setup | Apache-2.0, BSD, Apache-2.0, Unlicense |
 | ffmpeg | installed at setup | LGPL/GPL (system install) |

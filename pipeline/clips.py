@@ -6,10 +6,13 @@
         → moments: AI picks (NYO glm-5.3-flash), or free local picks with --no-ai
         → snapped to clean sentences
         → per-shot framing (face crop / two-speaker split / padded) → karaoke captions
+        → context: words matched to what is verifiably on screen, then emphasized
+          (smooth zoom / focus reframe) with a tiny sound effect under each move
         → clips + post text + report + contact sheet, each file checked
 
 Usage:  python clips.py "<video or YouTube link>" [--mode=clips|reedit|visual] [--headline]
         python clips.py "<video>" --no-ai   offline picks: transcript + audio, no key
+        python clips.py "<video>" --no-context --no-sfx   plain cuts, no emphasis
         python clips.py --check        test the setup
 Docs:   README.md and docs/ at the repo root.
 """
@@ -19,6 +22,18 @@ from itertools import zip_longest
 from pathlib import Path
 
 import requests
+
+# progress prints must appear live even when the output is piped to a log
+if hasattr(sys.stdout, "reconfigure") and not sys.stdout.isatty():
+    sys.stdout.reconfigure(line_buffering=True)
+
+# Run as a script, this file is module "__main__". Submodules (context, score,
+# sfx, reedit) do `import clips as C`; without the alias below Python would
+# execute the file a second time under the name "clips", whose OUT would stay
+# the output/ root default — context.index() then cached its visual scan
+# outside the per-video folder. Register this running copy under both names.
+if __name__ == "__main__":
+    sys.modules["clips"] = sys.modules["__main__"]
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")          # quiet OpenCV's own warnings
 os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")       # and its decoder chatter
@@ -38,6 +53,8 @@ MODEL       = "glm-5.3-flash"
 FALLBACK    = ["glm-5.3-flash", "glm-5", "qwen3-30b"]
 WHISPER     = os.environ.get("CLIPS_WHISPER", "large-v3-turbo")   # "tiny" for quick tests
 NO_AI       = "--no-ai" in sys.argv[1:]    # offline: no AI requests (tests, no key)
+NO_CONTEXT  = "--no-context" in sys.argv[1:]   # skip the words↔picture matching
+NO_SFX      = "--no-sfx" in sys.argv[1:]       # no little sounds under the moves
 
 N_CLIPS     = 10          # final clips
 CANDIDATES  = 15          # asked from the model, best N survive
@@ -69,6 +86,14 @@ LANG        = "en"        # set from the transcript
 NOSPACE     = {"ja", "zh", "yue", "th", "lo", "km", "my"}   # written without spaces
 PAUSE       = 0.7         # silence that ends a sentence when the transcript has no punctuation
 FACE_CONF   = 0.85        # detector confidence; statues and posters score ~0.6-0.8
+
+CONTEXT        = not NO_CONTEXT   # emphasize what is said when it is
+                                          # verifiably on screen (context.py)
+CTX_MAX_EVENTS = 3      # emphasis moves per clip, at most
+CTX_GAP        = 2.5     # seconds one move keeps from the next
+SFX            = not NO_SFX   # tiny sounds under the emphasis moves
+SFX_VOLUME     = 0.7     # 0-1: how loud they sit under the voice
+SFX_MAX        = 4       # sound effects per clip, at most
 
 API = "https://llm.nyolab.ai/api/public/v1/chat/completions"
 LOCAL = REPO / "settings.local.json"     # personal overrides, never committed
@@ -162,6 +187,26 @@ def frame_size(video):
              "-show_entries", "stream=width,height", "-of", "csv=p=0",
              str(video)]).strip().split(",")[:2]
     return int(wh[0]), int(wh[1])
+
+
+_RATES, _HAS_AUDIO = {}, {}
+
+def fps_of(video):
+    """Frame rate as ffmpeg's raw fraction ("60000/1001"), e.g. for zoompan."""
+    if video not in _RATES:
+        _RATES[video] = sh([FFPROBE, "-v", "error", "-select_streams", "v",
+                            "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0",
+                            str(video)]).strip()
+    return _RATES[video]
+
+
+def has_audio(video):
+    """Whether the source has an audio stream at all (sound effects need one)."""
+    if video not in _HAS_AUDIO:
+        _HAS_AUDIO[video] = bool(sh([FFPROBE, "-v", "error", "-select_streams", "a",
+                                     "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+                                     str(video)]).strip())
+    return _HAS_AUDIO[video]
 
 
 # ---------------- transcription ----------------
@@ -793,8 +838,13 @@ def crop_geometry(video):
     return w, h, cw, ch, int(max(0, (h - ch) / 2)) // 2 * 2
 
 
+_CUTS = {}
+
 def shot_cuts(video, start, end):
-    """Camera cuts inside the clip, in seconds from clip start."""
+    """Camera cuts inside the clip, in seconds from clip start (cached per range)."""
+    key = (str(video), round(start, 3), round(end, 3))
+    if key in _CUTS:
+        return list(_CUTS[key])
     r = subprocess.run([FFMPEG, "-hide_banner", "-ss", f"{start:.3f}", "-t", f"{end-start:.3f}",
                         "-i", str(video), "-an",
                         "-vf", f"scale=320:-2,select='gt(scene,{SCENE_CUT})',showinfo",
@@ -805,26 +855,36 @@ def shot_cuts(video, start, end):
     for c in cuts:
         if c - (keep[-1] if keep else 0) >= MIN_SHOT and (end - start) - c >= MIN_SHOT:
             keep.append(c)
+    _CUTS[key] = list(keep)
     return keep
 
 
-def faces_in(det, cap, t):
-    import cv2
-    cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
-    ok, fr = cap.read()
-    if not ok:
-        return []
-    _, faces = det.detect(fr)
+def faces_on(det, frame):
+    """Confident faces on an already-decoded frame, biggest first:
+    [(center_x, center_y, area), ...]."""
+    _, faces = det.detect(frame)
     if faces is None or not len(faces):
         return []
     faces = sorted((f for f in faces if f[14] >= FACE_CONF), key=lambda q: -q[2] * q[3])
     return [(float(f[0] + f[2] / 2), float(f[1] + f[3] / 2), float(f[2] * f[3])) for f in faces]
 
 
+def faces_in(det, cap, t):
+    """faces_on() for one moment: seeks there and decodes. Kept for one-off
+    use — per-sample seeking re-decodes from the previous keyframe on long-GOP
+    sources (~1.3 s a sample), so plan_shots() reads forward instead."""
+    import cv2
+    cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+    ok, fr = cap.read()
+    if not ok:
+        return []
+    return faces_on(det, fr)
+
+
 def plan_shots(video, start, end):
     """Split the clip at camera cuts and choose a layout per shot.
 
-      crop  — one face: tracking 9:16 crop, pts = [(t, face_x), ...]
+      crop  — one face: tracking 9:16 crop, pts = [(t, face_x, face_y), ...]
       split — two people side by side: each stacked in half the frame,
               pts = [(left_x, left_y), (right_x, right_y)]
       pad   — wide shot, b-roll, title card, screen recording: never cropped
@@ -842,13 +902,40 @@ def plan_shots(video, start, end):
     det = cv2.FaceDetectorYN.create(cv_path(model), "", (w, h), 0.6, 0.3, 5000)
 
     _, fh, cw, _, _ = crop_geometry(video)
-    shots = []
-    for t0, t1 in zip(edges, edges[1:]):
+    # every sample time up front, then one ordered decode pass: seeking to each
+    # sample re-decodes from the previous keyframe (~1.3 s a sample on long-GOP
+    # sources; ~10 ms reading forward). Sample times are unchanged; a decoded
+    # frame at/after a sample time stands in for every pending sample it passes
+    # (samples can sit closer together than one frame).
+    samples = []
+    for si, (t0, t1) in enumerate(zip(edges, edges[1:])):
         n = max(3, min(int((t1 - t0) / 0.5), 40))      # ~2 samples a second
+        samples += [(t0 + (t1 - t0) * (i + 0.5) / n, si) for i in range(n)]
+    seen = {}                                          # shot idx -> {t: faces}
+    cap.set(cv2.CAP_PROP_POS_MSEC, start * 1000)       # one seek, then forward
+    k = 0
+    while k < len(samples):
+        ok, fr = cap.read()
+        if not ok:
+            break
+        t_cur = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 - start
+        got = None
+        while k < len(samples) and samples[k][0] <= t_cur + 1e-3:
+            t, si = samples[k]
+            if got is None:
+                got = faces_on(det, fr)
+            seen.setdefault(si, {})[t] = got
+            k += 1
+    cap.release()
+
+    shots = []
+    for si, (t0, t1) in enumerate(zip(edges, edges[1:])):
+        n = max(3, min(int((t1 - t0) / 0.5), 40))
         ts = [t0 + (t1 - t0) * (i + 0.5) / n for i in range(n)]
-        seen = [(t, faces_in(det, cap, start + t)) for t in ts]
-        pts = [(t, f[0][0]) for t, f in seen if f]
-        pairs = [sorted(f[:2]) for _, f in seen
+        hit = seen.get(si, {})
+        seen_list = [(t, hit.get(t, [])) for t in ts]  # unreadable range: no faces
+        pts = [(t, f[0][0], f[0][1]) for t, f in seen_list if f]
+        pairs = [sorted(f[:2]) for _, f in seen_list
                  if len(f) >= 2 and f[1][2] >= 0.4 * f[0][2]          # comparable size
                  and abs(f[0][0] - f[1][0]) > cw * 0.8                 # won't fit one crop
                  and abs(f[0][1] - f[1][1]) < fh * 0.2]                # heads level
@@ -858,22 +945,24 @@ def plan_shots(video, start, end):
             continue
         mode = "crop" if len(pts) >= n * FACE_SHARE else "pad"
         if mode == "crop" and len(pts) >= 3:              # smooth jitter
-            xs = [x for _, x in pts]
+            xs = [x for _, x, _ in pts]
+            ys = [y for _, _, y in pts]
             xs = [xs[0]] + [(xs[i-1] + xs[i] + xs[i+1]) / 3
                             for i in range(1, len(xs) - 1)] + [xs[-1]]
-            pts = [(pts[i][0], xs[i]) for i in range(len(pts))]
+            ys = [ys[0]] + [(ys[i-1] + ys[i] + ys[i+1]) / 3
+                            for i in range(1, len(ys) - 1)] + [ys[-1]]
+            pts = [(pts[i][0], xs[i], ys[i]) for i in range(len(pts))]
         shots.append((t0, t1, mode, pts))
-    cap.release()
     return shots
 
 
 def pan_expr(pts, cw, w):
     """Crop x that glides between face samples inside one shot."""
     lo, hi = cw / 2, w - cw / 2
-    pts = [(t, round((max(lo, min(x, hi)) - cw / 2) / 4) * 4) for t, x in pts]
+    pts = [(t, round((max(lo, min(x, hi)) - cw / 2) / 4) * 4, yy) for t, x, yy in pts]
     expr = f"{pts[-1][1]:.0f}"
     for i in range(len(pts) - 2, -1, -1):
-        (ta, xa), (tb, xb) = pts[i], pts[i + 1]
+        (ta, xa, _), (tb, xb, _) = pts[i], pts[i + 1]
         span = max(tb - ta, 0.01)
         expr = f"if(lt(t,{tb:.2f}),{xa:.0f}+({xb-xa:.0f})*(t-{ta:.2f})/{span:.2f},{expr})"
     return f"if(lt(t,{pts[0][0]:.2f}),{pts[0][1]:.0f},{expr})"
@@ -886,6 +975,87 @@ def track_expr(shots, cw, w):
         here = pan_expr(pts, cw, w) if mode == "crop" and pts else f"{(w - cw) // 2}"
         expr = here if expr is None else f"if(lt(t,{t1:.3f}),{here},{expr})"
     return expr
+
+
+# ---------------- context emphasis ----------------
+
+def weave_focus(shots, events):
+    """Focus events join the shot list as their own layout mode, so the existing
+    mode-switch machinery cuts to them: the object stacked on top, the tracked
+    reaction face below. Zoom events are not shot modes — they ride on top of
+    the finished frame (zoom_stage)."""
+    out = list(shots)
+    for e in events:
+        if e.get("kind") == "focus":
+            # focus_pts are [reaction, object]; the top window shows the object
+            out.append((e["t0"], e["t1"], "focus", [e["focus_pts"][1], e["focus_pts"][0]]))
+    return out
+
+
+def zoom_exprs(events, iw=1620, ih=2880):
+    """zoompan expressions (z, x, y) for every zoom event at once.
+
+    Each move eases in over 0.45 s, holds, eases back out (smoothstep, so it
+    starts and ends still). The window slides toward the object in proportion
+    to how far in we are — at zoom 1 that is exactly 0, full frame — and is
+    clamped (per event, for the tightest zoom) so the tracked face keeps its
+    margin inside the frame. Events are nested by time; between them it is
+    zoom 1, an untouched frame.
+    """
+    RAMP = 0.45
+    ss = lambda u: f"({u}*{u}*(3-2*{u}))"     # smoothstep 0..1, built from out_time
+
+    def window(target, face, size, z):
+        """Window offset (px) that centers the object but keeps the face inside."""
+        lo = max(0.0, face + 60 - size / z)          # face clear of the left edge
+        hi = min(size - size / z, face - 60)         # ... and of the right edge
+        t = target - size / (2 * z)
+        if lo > hi:                                  # face at the very edge: center it
+            t = face - size / (2 * z)
+        return max(0.0, min(t, size - size / z))
+
+    zrest, xrest, yrest = "1", "0", "0"
+    for e in reversed(events):
+        t0, t1, z = e["t0"], e["t1"], e["z"]
+        fx, fy = e["face"][0] * iw, e["face"][1] * ih
+        kfs = e.get("kfs") or [((t0 + t1) / 2, e["face"][0], e["face"][1])]
+        mx = sorted(k[1] for k in kfs)[len(kfs) // 2] * iw    # the object's median spot
+        my = sorted(k[2] for k in kfs)[len(kfs) // 2] * ih
+        wx = round(window(mx, fx, iw, z), 1)
+        wy = round(window(my, fy, ih, z), 1)
+        u1 = f"((out_time-{t0:.3f})/{RAMP})"
+        u2 = f"((out_time-{t1-RAMP:.3f})/{RAMP})"
+        s1, s2 = ss(u1), ss(u2)
+        zrest = (f"if(lt(out_time,{t0:.3f}),1,"
+                 f"if(lt(out_time,{t0+RAMP:.3f}),1+{z-1:.4f}*{s1},"
+                 f"if(lt(out_time,{t1-RAMP:.3f}),{z:.4f},"
+                 f"if(lt(out_time,{t1:.3f}),{z:.4f}-({z-1:.4f})*{s2},{zrest}))))")
+        xrest = (f"if(lt(out_time,{t0:.3f}),0,"
+                 f"if(lt(out_time,{t0+RAMP:.3f}),{wx}*{s1},"
+                 f"if(lt(out_time,{t1-RAMP:.3f}),{wx},"
+                 f"if(lt(out_time,{t1:.3f}),{wx}*(1-{s2}),{xrest}))))")
+        yrest = (f"if(lt(out_time,{t0:.3f}),0,"
+                 f"if(lt(out_time,{t0+RAMP:.3f}),{wy}*{s1},"
+                 f"if(lt(out_time,{t1-RAMP:.3f}),{wy},"
+                 f"if(lt(out_time,{t1:.3f}),{wy}*(1-{s2}),{yrest}))))")
+    return zrest, xrest, yrest
+
+
+def zoom_stage(events, video):
+    """The zoompan stage over the finished frame: supersample 1.5x, then ease to
+    the event's zoom. Empty string when there is nothing to zoom (or the source
+    reports no sane frame rate), so plain clips stay untouched."""
+    ze = [e for e in events if e.get("kind") == "zoom"]
+    if not ze:
+        return ""
+    fps = fps_of(video)
+    m = re.match(r"^(\d+)(?:/(\d+))?$", fps or "")
+    if not m or int(m.group(1)) / max(int(m.group(2) or 1), 1) < 1:
+        return ""
+    z, x, y = zoom_exprs(ze)
+    big = (int(OUT_W * 1.5) // 2 * 2, int(OUT_H * 1.5) // 2 * 2)
+    return (f"scale={big[0]}:{big[1]}:flags=bicubic,"
+            f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={OUT_W}x{OUT_H}:fps={fps},setsar=1")
 
 
 # ---------------- render ----------------
@@ -910,8 +1080,9 @@ def slug(text, n=5):
 
 def caption_margin(video, mode=""):
     """Bottom margin that clears both platform UI and a padded 16:9 band.
-    Two stacked speakers: on the seam between them, not over a face."""
-    if "split" in mode and "pad" not in mode:     # a padded band would sit on the seam
+    Two stacked speakers or an object-over-reaction focus view: on the seam
+    between them, not over a face."""
+    if ("split" in mode or "focus" in mode) and "pad" not in mode:
         return OUT_H // 2 - 45
     w, h = frame_size(video)
     band = min(int(OUT_W * h / w), OUT_H)
@@ -919,14 +1090,20 @@ def caption_margin(video, mode=""):
     return max(SAFE_BOTTOM, min(below_band, 900))
 
 
-def frame_filter(video, start, end, post=""):
-    """Filtergraph for one source range: per-shot crop / split / pad, ending in [v].
+def frame_filter(video, start, end, post="", shots=None, events=None):
+    """Filtergraph for one source range: per-shot crop / split / pad / focus,
+    ending in [v].
 
+    `shots` may be passed in when the caller already ran plan_shots; `events`
+    are context emphasis moves — zoom rides on the finished frame as a zoompan
+    stage, focus is woven in as its own shot mode.
     `post` is appended to the finished frame (captions, punch-in, fps).
     """
     w, h, cw, ch, y = crop_geometry(video)
-    shots = plan_shots(video, start, end)
-    modes = [m for m in ("pad", "crop", "split") if any(x[2] == m for x in shots)]
+    shots = plan_shots(video, start, end) if shots is None else shots
+    events = events or []
+    shots = weave_focus(shots, events)
+    modes = [m for m in ("pad", "crop", "split", "focus") if any(x[2] == m for x in shots)]
 
     def pad(i, o):
         return (f"[{i}]split=2[{i}b][{i}f];"
@@ -939,21 +1116,24 @@ def frame_filter(video, start, end, post=""):
         return (f"[{i}]crop=w={cw}:h={ch}:x='{track_expr(shots, cw, w)}':y={y},"
                 f"scale={OUT_W}:{OUT_H}:flags=lanczos,unsharp=5:5:0.7:5:5:0.0,setsar=1[{o}]")
 
-    def split(i, o):
-        # each speaker gets a 9:8 window (half of 9:16); positions held per shot
+    def twin(i, o, m):
+        # a mode of two stacked 9:8 windows: split (the two speakers) and
+        # focus (the object on top, the reaction below); positions per shot
         hh = int(h * 0.62) // 2 * 2
         hw = min(w, int(hh * 9 / 8) // 2 * 2)
         def win(x, yy):
             return (max(0, min(int(x - hw / 2), w - hw)) // 2 * 2,
                     max(0, min(int(yy - hh * 0.42), h - hh)) // 2 * 2)
-        sp = [x for x in shots if x[2] == "split"]
+        sp = [x for x in shots if x[2] == m]
         xs = lambda k, j: expr_by_shot(sp, lambda q: win(*q[3][k])[j])
         return (f"[{i}]split=2[{i}t][{i}u];"
                 f"[{i}t]crop={hw}:{hh}:x='{xs(0, 0)}':y='{xs(0, 1)}',scale={OUT_W}:{OUT_H // 2}[{i}t2];"
                 f"[{i}u]crop={hw}:{hh}:x='{xs(1, 0)}':y='{xs(1, 1)}',scale={OUT_W}:{OUT_H // 2}[{i}u2];"
                 f"[{i}t2][{i}u2]vstack,setsar=1[{o}]")
 
-    build = {"pad": pad, "crop": crop, "split": split}
+    build = {"pad": pad, "crop": crop,
+             "split": lambda i, o: twin(i, o, "split"),
+             "focus": lambda i, o: twin(i, o, "focus")}
     if len(modes) == 1:
         vf = "[0:v]null[m0];" + build[modes[0]]("m0", "fr")
     else:
@@ -967,7 +1147,11 @@ def frame_filter(video, start, end, post=""):
             vf += f"[{last}][{n}o]overlay=0:0:enable='{on}'[l{k}];"
             last = f"l{k}"
         vf += f"[{last}]null[fr]"
-    vf += f";[fr]null{post}[v]"
+    zoom = zoom_stage(events, video)
+    if zoom:
+        vf += f";[fr]{zoom}[zv];[zv]null{post}[v]"
+    else:
+        vf += f";[fr]null{post}[v]"
     label = modes[0] if len(modes) == 1 else "+".join(
         f"{m} {sum(1 for x in shots if x[2] == m)}" for m in modes)
     return vf, label
@@ -1011,17 +1195,33 @@ def render(video, words, clip, idx):
     out = OUT / f"{idx:02d}-{slug(clip['hook'] or clip['title'])}.mp4"
 
     sub = ROOT / f"cap_{idx}.ass"
-    vf, clip["mode"] = frame_filter(video, start, end, "," + ass_filter(sub))
+    vf, clip["mode"] = frame_filter(video, start, end, "," + ass_filter(sub),
+                                    shots=clip.get("shots"), events=clip.get("events"))
     captions(words, start, end, sub, caption_margin(video, clip["mode"]),
              headline=clip.get("headline", "") if HEADLINE else "")
 
-    sh([FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end-start:.3f}",
-        "-i", str(video), "-filter_complex", vf,
-        "-map", "[v]", "-map", "0:a?",
-        "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,"
-               f"afade=t=out:st={max(0, end-start-0.15):.2f}:d=0.15",
-        "-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)])
+    sounds = []
+    if SFX and clip.get("events") and has_audio(video):
+        import sfx
+        sounds = sfx.plan(clip["events"], end - start, seed=round(start * 10))
+    if sounds:
+        cmd = [FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end-start:.3f}",
+               "-i", str(video)]                       # -ss/-t bind to the video input only
+        for s in sounds:
+            cmd += ["-i", str(s["path"])]
+        cmd += ["-filter_complex", vf + ";" + sfx.chain(sounds, end - start),
+                "-map", "[v]", "-map", "[aout]",
+                "-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
+                "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)]
+        sh(cmd)
+    else:
+        sh([FFMPEG, "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end-start:.3f}",
+            "-i", str(video), "-filter_complex", vf,
+            "-map", "[v]", "-map", "0:a?",
+            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,"
+                   f"afade=t=out:st={max(0, end-start-0.15):.2f}:d=0.15",
+            "-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
+            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out)])
     sub.unlink(missing_ok=True)
     verify(out, end - start)
     return out
@@ -1172,6 +1372,14 @@ def check():
     for mod in ("faster_whisper", "cv2", "numpy", "yt_dlp"):
         result = subprocess.run([sys.executable, "-c", f"import {mod}"], capture_output=True)
         line(result.returncode == 0, f"python package {mod}", "run the setup script again")
+    if SFX:
+        line(all((ROOT / "sfx" / f"{k}.wav").exists() for k in ("pop", "whoosh", "thump", "tick")),
+             "sound effects (pipeline/sfx)", "regenerate with the commands in pipeline/sfx/README.md")
+    if CONTEXT:
+        det = MODELS_DIR / "object_detection_yolox.onnx"
+        print(f"  {'ok ' if det.exists() else '-- '} context detector: "
+              + ("downloaded" if det.exists() else
+                 "downloads on first run (~34 MB, free, Apache-2.0)"))
     line(SKILL.exists() and bool(editorial_rules()), "editorial rules (.agents/skills/clipping)")
     try:
         key = None if NO_AI else api_key()
@@ -1190,7 +1398,7 @@ def check():
 
 
 def main():
-    global OUT
+    global OUT, CONTEXT, SFX
     if "--check" in sys.argv[1:]:
         sys.exit(0 if check() else 1)
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -1220,6 +1428,7 @@ def main():
     total = duration(video)
     print(f"source: {video.name}  ({total/60:.1f} min)")
     tune(total)
+    CONTEXT, SFX = CONTEXT and not NO_CONTEXT, SFX and not NO_SFX   # flags beat settings
 
     words, lines = transcribe(video)
     mode = forced or profile(video, words, total)
@@ -1232,22 +1441,37 @@ def main():
     cat = score.category(sentences(words), cat_arg or ("gaming" if mode == "visual" else None))
     cat_src = "forced" if cat_arg else ("guessed offline" if NO_AI else "detected")
     print(f"   category: {cat} ({cat_src}; override with --category=)")
+    index = None
+    if CONTEXT and mode == "clips":
+        import context
+        index = context.index(video, total)
     picks = (pick_by_energy(video, total) if mode == "visual"
              else pick_hooks_local(video, words, total, cat) if NO_AI
              else pick_hooks(lines, words, total))
     if not picks:
         sys.exit("no usable clips")
     print(f"   scoring {len(picks)} candidates (voice, picture, AI look)...")
-    picks = score.rank(video, _audio(video), words, picks, cat, use_ai=not NO_AI)[:N_CLIPS]
+    picks = score.rank(video, _audio(video), words, picks, cat,
+                       use_ai=not NO_AI, index=index)[:N_CLIPS]
     for c in picks:
         print(f"      {c['score']:5.1f}  {c['why_score']}" + (f" · {c['look_why']}" if c.get("look_why") else ""))
+
+    if index:                             # verified words↔picture moves per clip
+        import context
+        for c in picks:
+            c["shots"] = plan_shots(video, c["start"], c["end"])
+            c["events"] = context.events(video, words, c, index, c["shots"])
+        n = sum(len(c["events"]) for c in picks)
+        print(f"   context: {n} verified move{'s' if n != 1 else ''}"
+              + (" (--no-context for plain cuts)" if n else ""))
 
     preserve_outputs(OUT)
     print(f"   rendering {len(picks)}...")
     for i, c in enumerate(picks, 1):
         c["file"] = render(video, words, c, i)
+        ctx = f" · {len(c['events'])} ctx" if c.get("events") else ""
         print(f"   {i:02d}. {int(c['start']//60)}:{int(c['start']%60):02d} "
-              f"({c['end']-c['start']:.0f}s) {c['hook'][:52]}")
+              f"({c['end']-c['start']:.0f}s) {c['hook'][:52]}{ctx}")
 
     sheet = contact_sheet(picks)
     for c in picks:                       # ready-to-paste post text beside each clip
@@ -1256,9 +1480,17 @@ def main():
     rows = "\n".join(
         f"| {c['file'].name} | {int(c['start']//60)}:{int(c['start']%60):02d} | "
         f"{c['end']-c['start']:.0f}s | {c.get('score', '')} | {c.get('why_score', '')} | "
-        f"{c.get('mode','')} | {c['title']} | {c['hook']} | "
+        f"{c.get('mode','')}"
+        + (f" · {len(c['events'])} ctx" if c.get("events") else "") + " | "
+        f"{c['title']} | {c['hook']} | "
         f"{' '.join(c['hashtags'])} | {c['reason']} |"
         for c in picks)
+    moves = "\n".join(
+        f"| {c['file'].name} | {e['kind']} · {e.get('cls', '')} | "
+        f"{int((c['start'] + e['t0']) // 60)}:{int((c['start'] + e['t0']) % 60):02d} "
+        f"(+{e['t0']:.1f}s in the clip) | {e['t1'] - e['t0']:.1f}s |"
+        + (f" {e['z']:.2f}x punch-in" if e.get("z") else " object above the reaction") + " |"
+        for c in picks for e in c.get("events", []))
     (OUT / "report.md").write_text(
         f"# Clips — {video.name}\n\n"
         f"{len(picks)} clips · {total/60:.0f} min source · {mode} mode · {LANG} · "
@@ -1267,7 +1499,10 @@ def main():
         f"Category **{cat}** · clips numbered best first by score (50 = average for this "
         f"video; see docs/HOW-IT-WORKS.md#virality-score)\n\n"
         f"| File | Start | Len | Score | Strengths | Mode | Title | Hook | Tags | Why |\n"
-        f"|---|---|---|---|---|---|---|---|---|---|\n{rows}\n", encoding="utf-8")
+        f"|---|---|---|---|---|---|---|---|---|---|\n{rows}\n"
+        + (f"\nContext moves — spoken words verified on screen before the camera moves:\n\n"
+           f"| File | Move | At (source) | Held | What |\n|---|---|---|---|---|\n{moves}\n"
+           if moves else ""), encoding="utf-8")
 
     print(f"\ndone in {(time.time()-t0)/60:.1f} min → {OUT}")
     print(f"review sheet: {sheet}")

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent
 INK, MUTED, BLUE, AMBER = '#172E42', '#5E7184', '#3468C5', '#A85B15'
 parts = ['''<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1920" viewBox="0 0 1120 1920" role="img" aria-labelledby="title desc">
 <title id="title">Clipper system architecture</title>
-<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection or offline transcript and energy picks with --no-ai, then the same validation; visual mode uses signal peaks; both are ranked. Re-edits assemble AI-selected lines and bypass ranking. Shared framing, captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs and transcript cache support the pipeline. AI-marked modules call the external NYO API unless --no-ai skips it.</desc>
+<desc id="desc">An agent can discover campaigns with available web tools or an optional scraper, assess fit and source permissions, and keep research local. This task-triggered workflow is separate from the local Python pipeline and is not a background crawler. CLI or agents run the local pipeline. Video ingestion feeds transcription and a mode router. Clips use AI selection or offline transcript and energy picks with --no-ai, then the same validation; visual mode uses signal peaks; both are ranked, including a free speech-match signal. Re-edits assemble AI-selected lines and bypass ranking. Shared framing with context emphasis (verified spoken words matched to on-screen objects drive a zoom or a focus reframe, with small in-project sound effects), captions and FFmpeg export feed verification and local outputs. Editorial rules, settings, trend briefs, the transcript cache and a cached object-detector index support the pipeline. AI-marked modules call the external NYO API unless --no-ai skips it.</desc>
 <defs>
 <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#3468C5" stroke-width="1.5"/></marker>
 <marker id="aiarrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" fill="none" stroke="#A85B15" stroke-width="1.5"/></marker>
@@ -101,13 +101,14 @@ text(860,489,'trends/*.md',17,BLUE)
 text(860,527,'Campaign settings',20,INK,True)
 text(860,553,'settings.local.json',17,BLUE)
 text(860,582,'trends.py → briefs',16,MUTED)
-rect(840,625,240,147,'#F2F4F7','#D2DAE4',14)
-text(860,659,'TRANSCRIPT CACHE',16,MUTED,True)
-text(860,696,'*.transcript.json',19,INK,True)
-text(860,727,'Reuse on the next run',17,MUTED)
-text(860,751,'Local · output/<video>/',16,BLUE)
+rect(840,625,240,175,'#F2F4F7','#D2DAE4',14)
+text(860,659,'TRANSCRIPT + INDEX CACHE',16,MUTED,True)
+text(860,690,'*.transcript.json',19,INK,True)
+text(860,716,'*.visualindex.json',19,INK,True)
+text(860,747,'Reuse on the next run',17,MUTED)
+text(860,771,'Local · output/<video>/',16,BLUE)
 # Cache connector uses the gap between transcription and router.
-flow([(565,535),(605,535),(605,575),(825,575),(825,697),(840,697)],arrow=False)
+flow([(565,535),(605,535),(605,575),(825,575),(825,690),(840,690)],arrow=False)
 text(660,566,'read / write',14,MUTED)
 
 section(65,716,'2','SELECT A PROCESSING PATH')
@@ -124,7 +125,7 @@ for cx in (175,425,675):
 # Continuous modes converge at ranking; the story lane bypasses it.
 flow([(175,986),(175,1012),(300,1012),(300,1034)])
 flow([(425,986),(425,1012),(300,1012)],arrow=False)
-node(65,1034,470,114,'Hook ranking',['Voice + picture + category weights','AI reviews 3 frames; --no-ai keeps local'],True,'score.py · category() / rank()')
+node(65,1034,470,114,'Hook ranking',['Voice + picture + match + category weights','AI reviews 3 frames; --no-ai keeps local'],True,'score.py · category() / rank()')
 flow([(675,986),(675,1187),(425,1187)],arrow=False)
 text(550,1080,'New line order',16,MUTED)
 text(550,1105,'Skips ranking',16,MUTED)
@@ -148,27 +149,27 @@ text(860,1227,'Settings → run limits',17,INK)
 text(860,1254,'Trends → hook brief',17,INK)
 
 section(65,1220,'3','RENDER & VERIFY')
-node(65,1239,220,96,'Shot framing',['Crop / split / pad'],code='OpenCV · YuNet')
-node(315,1239,220,96,'Timed captions',['Word highlighting'],code='ASS · Montserrat')
-node(565,1239,220,96,'Video assembly',['Re-edit cross-fades'],code='FFmpeg · −14 LUFS')
+node(65,1239,220,118,'Shot framing',['Crop / split / pad','+ focus reframe'],code='OpenCV · YuNet · YOLOX-S')
+node(315,1239,220,118,'Timed captions',['Word highlighting'],code='ASS · Montserrat')
+node(565,1239,220,118,'Video assembly',['Context zoom + sfx','Re-edit cross-fades'],code='FFmpeg · −14 LUFS')
 # Render cards are shared component dependencies, not a false sequential flow.
 flow([(425,1239),(425,1230),(175,1230),(175,1239)],arrow=False)
 flow([(425,1230),(675,1230),(675,1239)],arrow=False)
 for cx in (175,425,675):
-    flow([(cx,1335),(cx,1355),(425,1355)],arrow=False)
-node(245,1372,360,56,'Verify picture / sound / length')
-flow([(425,1355),(425,1372)])
+    flow([(cx,1357),(cx,1374),(425,1374)],arrow=False)
+node(245,1388,360,56,'Verify picture / sound / length')
+flow([(425,1374),(425,1388)])
 
 # Distinct output contracts.
-flow([(425,1428),(425,1475)])
-rect(40,1475,1040,142,'#EAF4EE','#ABCAB8',14)
-text(60,1505,'LOCAL OUTPUTS',16,'#3D7554',True)
-text(60,1540,'Clips / visual',22,INK,True)
-text(60,1569,'01-*.mp4 · *.txt · report.md · review.png',18,MUTED)
-text(610,1540,'Re-edits → reedit/',22,INK,True)
-text(610,1569,'A / B / C shorts · *.txt · report.md',18,MUTED)
-text(610,1597,'compare.mp4 when a prior clip exists',16,MUTED)
-text(40,1650,'Solid: workflow / data flow · AI badges: NYO · Dashed: external API',16,MUTED)
+flow([(425,1444),(425,1493)])
+rect(40,1493,1040,142,'#EAF4EE','#ABCAB8',14)
+text(60,1523,'LOCAL OUTPUTS',16,'#3D7554',True)
+text(60,1558,'Clips / visual',22,INK,True)
+text(60,1587,'01-*.mp4 · *.txt · report.md · review.png',18,MUTED)
+text(610,1558,'Re-edits → reedit/',22,INK,True)
+text(610,1587,'A / B / C shorts · *.txt · report.md',18,MUTED)
+text(610,1615,'compare.mp4 when a prior clip exists',16,MUTED)
+text(40,1668,'Solid: workflow / data flow · AI badges: NYO · Dashed: external API',16,MUTED)
 parts.append('</g></svg>')
 output = Path(sys.argv[1]) if len(sys.argv)>1 else ROOT/'system.svg'
 output.write_text('\n'.join(parts)+'\n', encoding='utf-8')

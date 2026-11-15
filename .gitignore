@@ -22,6 +22,9 @@ pipeline/sheet/
 pipeline/reedit_tmp/
 pipeline/dbg*
 
+# runtime-downloaded object detector (context.py; Apache-2.0, ~34 MB)
+pipeline/models/object_detection_yolox.onnx
+
 # personal settings
 settings.local.json
 CONTEXT.local.md

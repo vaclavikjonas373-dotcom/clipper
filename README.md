@@ -9,6 +9,7 @@ Turn any video into vertical, captioned shorts for TikTok, Reels and YouTube Sho
   [research workflow](docs/CAMPAIGN-RESEARCH.md) covers fit, evidence, optional
   Firecrawl and privacy. This is agent-side work, not a built-in crawler.
 - **Frames them for a phone.** Per camera shot: follows a face, stacks two speakers, or shows wide shots whole over a dark blur.
+- **Matches the words to the picture.** When the transcript names something — a car, food, a phone — a local object detector (YOLOX-S, Apache-2.0, downloaded once) checks it is actually on screen around that moment, and the clip emphasizes it: a smooth punch-in or a focus reframe with the object above the reaction. Nothing is invented — no verified match, normal playback; brand logos are never faked. Tiny pop/whoosh/impact sounds, synthesized in-project, sit under the moves. `--no-context` and `--no-sfx` turn either part off.
 - **Karaoke captions.** The spoken word lights up exactly when it is said (about 20 ms accuracy), and nothing shows while the speaker is silent.
 - **Works on trailers too.** Fast-cut videos are re-edited into a new story (hook → build → payoff) with soft cross-fades.
 - **Ranks clips by hook strength.** Each candidate's first 3 seconds are scored on voice (energy, pitch, pace, dead air), picture (face, motion, cuts) and an AI look at the frames, weighted by content category. Clips are numbered best-first.
@@ -19,7 +20,7 @@ Turn any video into vertical, captioned shorts for TikTok, Reels and YouTube Sho
 
 <p align="center">
   <a href="docs/architecture/system.svg">
-    <img src="docs/architecture/system.svg" width="1000" alt="Clipper architecture: agent-side campaign discovery, optional scraping, fit and source-permission checks, and private research context feed a separate local pipeline for transcription, clips/visual/re-edit selection (AI picks, or offline --no-ai picks), ranking, rendering, verification and outputs; AI modules use NYO unless --no-ai skips it.">
+    <img src="docs/architecture/system.svg" width="1000" alt="Clipper architecture: agent-side campaign discovery, optional scraping, fit and source-permission checks, and private research context feed a separate local pipeline for transcription, clips/visual/re-edit selection (AI picks, or offline --no-ai picks), ranking with a speech-match signal, rendering with per-shot framing plus context emphasis (verified words matched to on-screen objects, zoom or focus reframe, small in-project sound effects), verification and outputs; AI modules use NYO unless --no-ai skips it.">
   </a>
 </p>
 
@@ -85,6 +86,8 @@ $py = "pipeline\.venv\Scripts\python.exe"
 & $py pipeline\clips.py "sources\x.mp4" --headline       # add hook text at the top of normal clips
 & $py pipeline\clips.py "sources\x.mp4" --category=gaming # override the detected category
 & $py pipeline\clips.py "sources\x.mp4" --no-ai          # offline picks: transcript + audio, no key, free
+& $py pipeline\clips.py "sources\x.mp4" --no-context      # plain cuts: no words↔picture emphasis
+& $py pipeline\clips.py "sources\x.mp4" --no-sfx          # no little sounds under the emphasis moves
 & $py pipeline\trends.py "@SomeChannel, stoicism"         # learn from the niche's top Shorts (free)
 & $py pipeline\clips.py "sources\x.mp4" --trend=somechannel-stoicism   # pick clips like the winners
 ```
@@ -161,7 +164,7 @@ clipper/
 ├── AGENTS.md                 rules for any AI agent working here
 ├── CHANGELOG.md              what changed, newest first
 ├── .agents/skills/clipping/  the clipping skill: editorial rules + how to run
-├── pipeline/                 clips.py, reedit.py, score.py, trends.py, check_captions.py, fonts/, models/
+├── pipeline/                 clips.py, context.py, sfx.py, reedit.py, score.py, trends.py, check_captions.py, fonts/, models/
 ├── trends/                   briefs written by trends.py (yours, not committed)
 ├── .github/workflows/        checks: Windows + Linux install and test on every change
 ├── setup/                    setup.ps1 (Windows), setup.sh (macOS / Linux)

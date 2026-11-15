@@ -1,7 +1,7 @@
 ---
 name: clipping
 description: "Research and assess clipping campaigns and permitted footage with available agent web tools, then run the clipper pipeline and review hooks, captions and output."
-version: 2.5.1
+version: 2.6.0
 ---
 
 # Clipping
@@ -43,6 +43,8 @@ From the repository root. The Python inside the setup's virtual environment:
 <python> pipeline/clips.py "<video>" --mode=reedit   # force clips | reedit | visual
 <python> pipeline/clips.py "<video>" --headline      # hook text at the top of normal clips
 <python> pipeline/clips.py "<video>" --no-ai         # offline picks: excited language + audio energy, free, no key
+<python> pipeline/clips.py "<video>" --no-context    # plain cuts: no words↔picture emphasis
+<python> pipeline/clips.py "<video>" --no-sfx        # no little sounds under the emphasis moves
 <python> pipeline/clips.py --check                   # test the setup (free)
 <python> pipeline/clips.py "<video>" --category=gaming   # override the detected category
 <python> pipeline/trends.py "@Channel, hashtag"          # learn from a niche's top Shorts
@@ -97,6 +99,8 @@ The pipeline chooses automatically; override with `--mode=` when it is wrong.
   (And, But, So, Like, Okay, Well, Now).
 - Prefer, in order: a specific number, a contradiction of common belief, a
   concrete story beat, a question the viewer can't answer, a named consequence.
+- When the words name something concrete the camera can show (a car, food, a
+  phone), that moment is a plus: the pipeline can emphasize the real object.
 - Reject generic advice. "Work hard and believe in yourself" is not a hook.
 - A clip must make sense with zero context. If it needs the previous sentence,
   it is not a clip.
@@ -128,7 +132,8 @@ The pipeline chooses automatically; override with `--mode=` when it is wrong.
 - Keep text inside the middle 80% of the frame; the bottom ~420 px is covered
   by TikTok/Reels buttons.
 - Face shots: lower third. Letterboxed shots: just under the picture, never on
-  the source's own text or logo. Two stacked speakers: on the seam.
+  the source's own text or logo. Two stacked speakers, or a focus reframe
+  (object above, reaction below): on the seam.
 - Re-edits: a short headline at the top, no progress bar.
 - Japanese / Chinese / Thai: no spaces between words; never open on a particle.
 
@@ -140,6 +145,23 @@ The pipeline chooses automatically; override with `--mode=` when it is wrong.
 - Trust only confident faces; statues, posters and printed T-shirts fool
   detectors.
 - Never black bars, never a squashed picture.
+
+## Context emphasis (words ↔ picture)
+
+- The pipeline matches spoken keywords to what an object detector actually saw
+  on screen near that moment, then emphasizes the real object: a smooth zoom
+  (eased punch-in, face kept in frame) or a focus reframe (object above the
+  reaction). No verified match → normal playback; never emphasize on a guess.
+- Nothing is invented: the move only re-frames footage that is already there.
+  Brand logos and named characters can't be verified by a generic detector, so
+  they are never the target ("KFC" can emphasize only visible food). Persons
+  are never a trigger.
+- One move at a time, at most 3 per clip, kept 2.5 s apart, inside one camera
+  shot, away from the clip's open and close.
+- Tiny pop / whoosh / impact sounds sit under the moves. They are synthesized
+  in-project (`pipeline/sfx/`), short, quiet, never twice for one move, and a
+  little varied each time. Both halves can be disabled (`--no-context`,
+  `--no-sfx`, or `{"CONTEXT": false}` / `{"SFX": false}` in settings).
 
 ## Re-edit cuts
 

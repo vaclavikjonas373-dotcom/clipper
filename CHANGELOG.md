@@ -3,6 +3,78 @@
 Newest first. Every change to code, settings, rules or docs gets a dated entry here
 (see `AGENTS.md`).
 
+## 2026-11-15 — context emphasis (words ↔ picture) + sound effects
+- New `pipeline/context.py`: spoken keywords are matched to what is actually on
+  screen before the clip emphasizes anything. Each keyword maps to COCO
+  detector classes ("KFC" → the food group; persons deliberately never a
+  trigger); a **YOLOX-S** detector (OpenCV zoo, Apache-2.0, ~34 MB, downloaded
+  once into `pipeline/models/`) scans the source at 2 fps, cached as
+  `<video>.visualindex.json` beside the transcript. A mention counts only when
+  the class is detected near the moment it is spoken (conf ≥ 0.40, sane box
+  size). No verified match → the clip plays normally; nothing invented.
+- Emphasis moves in `clips` mode, max 3 per clip, ≥ 2.5 s apart, inside one
+  camera shot and away from the clip's edges: **zoom** — an eased punch-in on
+  the finished frame (zoompan, supersampled 1.5×, clamped so the tracked face
+  stays in frame) when the object is near it; **focus** — a split-style reframe
+  (object on top, reaction below) woven in as a new shot mode, reusing the
+  mode-switch machinery. Framing chains (crop/split/pad) unchanged.
+- New `pipeline/sfx.py` + `pipeline/sfx/` (pop, whoosh, thump, tick):
+  synthesized with ffmpeg, project-owned, nothing sampled. Zoom → whoosh into
+  a soft thump; focus → pop. Rate/gain jitter, near-edge guards, per-clip cap,
+  mixed under the voice before the existing loudnorm.
+- `score.rank()` gained a free **match** signal (share of the hook's keywords
+  verifiably on screen), weighted 0.5 in talk-family, gaming, sports, music.
+- Flags `--no-context` / `--no-sfx` and settings `CONTEXT`, `CTX_MAX_EVENTS`,
+  `CTX_GAP`, `SFX`, `SFX_VOLUME`, `SFX_MAX` (all honored from
+  `settings.local.json`; flags beat settings). With both off, rendering is
+  byte-path identical to before (plain `-af` audio path preserved).
+- `clips.plan_shots()` face samples now carry (t, x, y); `fps_of()`/`has_audio()`
+  helpers; `--check` gained an sfx-assets line and a soft context-detector line.
+- Tests: `tests/test_context_sfx.py` (offline, no network, no model) — keyword
+  mapping, visibility rules, zoom/focus geometry, dedup/gap/cap, sfx planning
+  and filtergraphs, focus weaving and zoompan stages.
+- Stdout is now line-buffered when piped (progress prints appeared stale in
+  redirected logs on Windows because of block buffering).
+- The report gained a "Context moves" table (per clip: move, where in the
+  source, how long it is held) and `report.md` omits it when a run had none.
+- Bugfix: the visual index was cached in `output/` instead of the per-video
+  folder. Submodules do `import clips as C`, but the pipeline runs as a script,
+  so Python executed `clips.py` a second time for them — a copy whose `OUT`
+  was still the `output/` root default (`reedit.py`/`check_captions.py` already
+  worked around this by rebinding `C.OUT` themselves). `clips.py` now
+  registers its running copy under both module names, so `context`, `score`,
+  `sfx` and `reedit` see the per-video `OUT`. The stray cache file was moved
+  into `output/<video>/` (not deleted) and a re-run cache-hit on it there.
+- Sound-effect gains recalibrated from an A/B on the sample source: at the old
+  base gains the mix changed by at most +1 dB (max volume) — inaudible. At the
+  new base gains the pop moves the mix by +3.0 dB (max) and the thump +2.2 dB
+  over the same windows — audible accents still ~8–12 dB under a loud bed.
+- Validated the emphasis render end-to-end on real footage (scratch, in
+  `pipeline/dbg_render/`, labeled DBG): a real 28 s range of the sample source
+  with real detector hits and clearly-synthetic word timings produced a zoom
+  (1.35×, face kept in frame) and a focus reframe (car on top, reaction below),
+  both correct in grabbed frames, with the sounds present. The sample's real
+  transcript only ever names food words and no food is ever on screen (GTA
+  trailer + webcam), so its five deliverable clips correctly play with no
+  verified moves — the "nothing invented" rule working as designed.
+- Updated README (feature, flags, alt text), `docs/HOW-IT-WORKS.md` (pipeline,
+  score table, framing table, new sections, settings, limits), the skill
+  (2.6.0, context rules, brief line), and the architecture diagrams
+  (`render-system.py`/`system.svg`, `pipeline.d2`/`pipeline.svg`).
+- Performance: the visual-index scan, `plan_shots()` and `score.picture()`
+  decode in one ordered pass instead of seeking to every sample — on the
+  long-GOP sample source a seek cost ~1.35 s against ~10 ms a sequential frame
+  (measured), which is why the first full run stalled with no output.
+  `plan_shots` validated against a strict decode ground truth (new code
+  matches it exactly on all 41 samples of a 20 s range; the old seek version
+  flapped off it on 23 — the rework is also more accurate). `score.picture()`
+  keeps the ~0.2 s motion grid (diffs ≥ 0.18 s apart, never consecutive
+  frames) and now samples faces every 0.75 s, capped at 4. Picture results are
+  cached per hook window and camera-cut scans per range. Measured on a 20 s
+  range: plan_shots 62.7 → 18.8 s, picture 47.9 → 8.9 s; a full index scan of
+  the 3.7-min source went from ~10 min of seeking to ~3.5 min of decoding
+  (cached afterwards as `<video>.visualindex.json`).
+
 ## 2026-11-14 — free offline moment picking (`--no-ai`)
 - Added `pick_hooks_local()` to `pipeline/clips.py`: with `--no-ai`, `clips` mode
   picks moments without any API. Sentence-start candidates, one to four sentence
